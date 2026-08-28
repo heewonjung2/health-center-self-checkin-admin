@@ -1,0 +1,6 @@
+dist
+node_modules
+.claude
+package-lock.json
+*.health-backup.json
+*.csv
