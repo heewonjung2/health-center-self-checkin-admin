@@ -125,10 +125,14 @@ export function validateFields(input, { legacy = false } = {}) {
 }
 export function composeSymptom(main, sub, detail) {
   if (!Object.hasOwn(SYMPTOMS, main)) throw new Error('방문 목적을 선택해 주세요.')
-  if (main !== '기타' && !SYMPTOMS[main].includes(sub))
+  const subs = (Array.isArray(sub) ? sub : [sub]).filter(Boolean)
+  if (main !== '기타' && (!subs.length || subs.some((item) => !SYMPTOMS[main].includes(item))))
     throw new Error('세부 증상을 선택해 주세요.')
-  const suffix = main === '기타' || sub === '직접입력' ? text(detail, '세부 증상', 200, true) : sub
-  return `${main} - ${suffix}`
+  const parts =
+    main === '기타'
+      ? [text(detail, '세부 증상', 200, true)]
+      : subs.map((item) => (item === '직접입력' ? text(detail, '세부 증상', 200, true) : item))
+  return `${main} - ${parts.join(', ')}`
 }
 function assertNoDuplicate(records, input, exceptId, date) {
   if (

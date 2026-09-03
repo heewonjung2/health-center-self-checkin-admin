@@ -8,7 +8,9 @@ import {
   ordered,
   queueLabel,
 } from '../domain/records'
-const EMPTY = { studentId: '', name: '', temperature: '', main: '', sub: '', detail: '' }
+const EMPTY = { studentId: '', name: '', temperature: '', main: '', subs: [], detail: '' }
+const isDirty = (form) =>
+  Object.values(form).some((value) => (Array.isArray(value) ? value.length > 0 : Boolean(value)))
 export default function VisitorCheckIn({
   records,
   mutate,
@@ -30,8 +32,17 @@ export default function VisitorCheckIn({
     setForm((prev) => ({ ...prev, [key]: value }))
     setError('')
   }
+  const toggleSub = (item) => {
+    setForm((prev) => {
+      const subs = prev.subs.includes(item)
+        ? prev.subs.filter((value) => value !== item)
+        : [...prev.subs, item]
+      return { ...prev, subs, detail: subs.includes('직접입력') ? prev.detail : '' }
+    })
+    setError('')
+  }
   useEffect(() => {
-    if (!Object.values(form).some(Boolean)) return
+    if (!isDirty(form)) return
     const timer = setTimeout(() => {
       setForm(EMPTY)
       setError('일정 시간 입력이 없어 개인정보를 지웠습니다. 다시 접수해 주세요.')
@@ -53,7 +64,7 @@ export default function VisitorCheckIn({
     setBusy(true)
     setError('')
     try {
-      const symptom = composeSymptom(form.main, form.sub, form.detail)
+      const symptom = composeSymptom(form.main, form.subs, form.detail)
       let created
       await mutate((current) => {
         created = createRegistration(current, { ...form, symptom })
@@ -159,9 +170,10 @@ export default function VisitorCheckIn({
                       key={item}
                       className={`choice ${form.main === item ? 'selected' : ''}`}
                       aria-pressed={form.main === item}
-                      onClick={() =>
-                        setForm((prev) => ({ ...prev, main: item, sub: '', detail: '' }))
-                      }
+                      onClick={() => {
+                        setForm((prev) => ({ ...prev, main: item, subs: [], detail: '' }))
+                        setError('')
+                      }}
                     >
                       {item}
                     </button>
@@ -170,15 +182,18 @@ export default function VisitorCheckIn({
               </fieldset>
               {form.main && form.main !== '기타' && (
                 <fieldset className="plain-fieldset detail-area">
-                  <legend>세부 증상</legend>
+                  <legend>
+                    세부 증상{' '}
+                    <span className="detail-hint">해당하는 항목을 모두 선택해 주세요</span>
+                  </legend>
                   <div className="chip-row">
                     {SYMPTOMS[form.main].map((item) => (
                       <button
                         type="button"
                         key={item}
-                        className={`chip ${form.sub === item ? 'selected' : ''}`}
-                        aria-pressed={form.sub === item}
-                        onClick={() => setForm((prev) => ({ ...prev, sub: item, detail: '' }))}
+                        className={`chip ${form.subs.includes(item) ? 'selected' : ''}`}
+                        aria-pressed={form.subs.includes(item)}
+                        onClick={() => toggleSub(item)}
                       >
                         {item}
                       </button>
@@ -186,7 +201,7 @@ export default function VisitorCheckIn({
                   </div>
                 </fieldset>
               )}
-              {(form.main === '기타' || form.sub === '직접입력') && (
+              {(form.main === '기타' || form.subs.includes('직접입력')) && (
                 <label>
                   증상 직접 입력{' '}
                   <input
