@@ -179,8 +179,17 @@
   border-radius: 12px;
 }
 .detail-area legend {
-  float: left;
+  display: block;
+  float: none;
   width: 100%;
+  padding: 0;
+  margin-bottom: 12px;
+}
+.detail-hint {
+  font-size: 12px;
+  font-weight: 400;
+  color: var(--muted);
+  margin-left: 8px;
 }
 .chip-row {
   display: flex;
@@ -195,6 +204,7 @@
   border-radius: 8px;
   font-size: 13px;
   min-height: 40px;
+  word-break: keep-all;
 }
 .button {
   border: 1px solid transparent;
