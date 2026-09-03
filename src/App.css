@@ -204,7 +204,7 @@
   border-radius: 8px;
   font-size: 13px;
   min-height: 40px;
-  white-space: nowrap;
+  word-break: keep-all;
 }
 .button {
   border: 1px solid transparent;

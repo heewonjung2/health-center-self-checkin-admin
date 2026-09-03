@@ -131,7 +131,9 @@ export function composeSymptom(main, sub, detail) {
   const parts =
     main === '기타'
       ? [text(detail, '세부 증상', 200, true)]
-      : subs.map((item) => (item === '직접입력' ? text(detail, '세부 증상', 200, true) : item))
+      : [...new Set(subs)]
+          .sort((a, b) => SYMPTOMS[main].indexOf(a) - SYMPTOMS[main].indexOf(b))
+          .map((item) => (item === '직접입력' ? text(detail, '세부 증상', 200, true) : item))
   return `${main} - ${parts.join(', ')}`
 }
 function assertNoDuplicate(records, input, exceptId, date) {

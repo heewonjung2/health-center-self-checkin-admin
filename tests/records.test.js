@@ -57,6 +57,8 @@ describe('validation and dates', () => {
     expect(() => composeSymptom('감기', [], '')).toThrow()
     expect(() => composeSymptom('감기', ['목감기', '복통'], '')).toThrow()
     expect(() => composeSymptom('감기', ['목감기', '직접입력'], '')).toThrow()
+    expect(composeSymptom('소화불량', ['복통', '체함', '복통'], '')).toBe('소화불량 - 체함, 복통')
+    expect(composeSymptom('감기', ['직접입력', '목감기'], '기침')).toBe('감기 - 목감기, 기침')
   })
 })
 describe('state transitions and queue', () => {
