@@ -2,6 +2,7 @@ import { createReadStream, existsSync, statSync } from 'node:fs'
 import { extname, join, normalize } from 'node:path'
 import {
   ACTIVE,
+  SCHEMA_VERSION,
   changeRegistration,
   createRegistration,
   dateKey,
@@ -9,6 +10,8 @@ import {
   validDate,
   validateRecord,
 } from '../src/domain/records.js'
+import { inspectBackup, mergeBackup } from '../src/domain/backup.js'
+import { decryptBackup, encryptBackup } from '../src/lib/crypto.js'
 
 const TYPES = {
   '.html': 'text/html; charset=utf-8',
@@ -267,6 +270,40 @@ export function createApp({ store, auth, config, now = () => new Date() }) {
         },
       )
       return send(res, 200, { added, skipped, revision: result.revision })
+    }
+    // 백업 암·복호화는 서버에서 한다. 태블릿·근로학생 PC는 http로 붙어 있어
+    // 브라우저 암호화 기능(crypto.subtle)을 쓸 수 없기 때문이다.
+    if (path === '/backup' && method === 'POST') {
+      const { password } = await readBody(req)
+      const payload = JSON.stringify({
+        schemaVersion: SCHEMA_VERSION,
+        revision: store.revision(),
+        records: ordered(store.all()),
+      })
+      let file
+      try {
+        file = await encryptBackup(payload, String(password ?? ''))
+      } catch (error) {
+        throw fail(error.message)
+      }
+      store.log('admin', '백업 내려받기', '', now())
+      return send(res, 200, { file })
+    }
+    if (path === '/restore' && method === 'POST') {
+      const { password, payload } = await readBody(req)
+      let imported
+      try {
+        imported = inspectBackup(await decryptBackup(String(payload ?? ''), String(password ?? '')))
+      } catch (error) {
+        throw fail(error.message)
+      }
+      const result = mutate((records) => mergeBackup(records, imported.records), {
+        actor: 'admin',
+        action: '백업 복원',
+        detail: `${imported.records.length}건`,
+        now: now(),
+      })
+      return send(res, 200, { restored: imported.records.length, revision: result.revision })
     }
     if (path === '/hours' && method === 'PUT') {
       const { hours } = await readBody(req)

@@ -1,11 +1,9 @@
 import { useEffect, useRef, useState } from 'react'
 import { dateKey } from '../domain/records'
-import { inspectBackup, mergeBackup } from '../domain/backup'
-import { AUTH_KEY, readCredential, regenerateRecoveryCode, unlockPin } from '../lib/auth'
-import { hashPin, encryptBackup, decryptBackup } from '../lib/crypto'
+import { api } from '../lib/api'
 import { copyText, downloadFile } from '../lib/export'
-import { DEFAULT_HOURS, hoursSummary, readHours, writeHours } from '../lib/schedule'
-import { LEGACY_KEY, STORAGE_KEY } from '../lib/storage'
+import { DEFAULT_HOURS, hoursSummary, serializeHours } from '../lib/schedule'
+import { readStore } from '../lib/storage'
 import Dialog from './Dialog'
 const DAY_OPTIONS = [
   [1, '월'],
@@ -16,7 +14,15 @@ const DAY_OPTIONS = [
   [6, '토'],
   [0, '일'],
 ]
-export default function SettingsPanel({ onClose, onLock, mutate, notify, disabled }) {
+export default function SettingsPanel({
+  onClose,
+  onLock,
+  hours: savedHours,
+  importRecords,
+  sync,
+  notify,
+  disabled,
+}) {
   const [password, setPassword] = useState('')
   const [confirmation, setConfirmation] = useState('')
   const [restorePassword, setRestorePassword] = useState('')
@@ -29,7 +35,8 @@ export default function SettingsPanel({ onClose, onLock, mutate, notify, disable
   const [error, setError] = useState('')
   const [recoveryPin, setRecoveryPin] = useState('')
   const [newRecovery, setNewRecovery] = useState('')
-  const [hours, setHours] = useState(() => readHours())
+  const [hours, setHours] = useState(savedHours ?? DEFAULT_HOURS)
+  const [migration, setMigration] = useState(null)
   const active = useRef(true)
   useEffect(() => {
     active.current = true
@@ -53,13 +60,13 @@ export default function SettingsPanel({ onClose, onLock, mutate, notify, disable
       setBusy(false)
     }
   }
+  // 백업 암·복호화는 서버가 한다. 태블릿·근로학생 PC는 http로 붙어 있어
+  // 브라우저 암호화 기능을 쓸 수 없기 때문이다.
   const backup = (e) => {
     e.preventDefault()
     void run(async () => {
       if (password !== confirmation) throw new Error('백업 암호와 확인 값이 일치하지 않습니다.')
-      const raw = localStorage.getItem(STORAGE_KEY) ?? localStorage.getItem(LEGACY_KEY)
-      if (!raw) throw new Error('백업할 기록이 없습니다.')
-      const encrypted = await encryptBackup(raw, password)
+      const { file: encrypted } = await api.backup(password)
       assertActive()
       downloadFile(encrypted, `건강진료센터_${dateKey()}.health-backup.json`, 'application/json')
       setPassword('')
@@ -67,41 +74,34 @@ export default function SettingsPanel({ onClose, onLock, mutate, notify, disable
       notify('암호화 백업을 내려받았습니다. 암호는 파일과 별도로 보관하세요.')
     })
   }
-  const inspect = (e) => {
+  const restore = (e) => {
     e.preventDefault()
     void run(async () => {
       if (!file || file.size > 10 * 1024 * 1024)
         throw new Error('10MB 이하의 암호화 백업 파일을 선택해 주세요.')
-      const decrypted = await decryptBackup(await file.text(), restorePassword)
+      const { restored } = await api.restore(restorePassword, await file.text())
       assertActive()
-      setPreview(inspectBackup(decrypted))
       setRestorePassword('')
+      setPreview({ restored })
+      await sync()
+      notify(`백업에서 새 기록 ${restored}건을 복원했습니다. 기존 기록은 덮어쓰지 않았습니다.`)
     })
   }
-  const restore = () =>
+  // 서버를 쓰기 전에 이 브라우저에만 쌓여 있던 기록을 한 번 올린다.
+  const migrate = () =>
     run(async () => {
-      await mutate((current) => mergeBackup(current, preview.records))
-      setPreview(null)
-      notify('백업의 새 기록을 복원했습니다. 기존 기록은 덮어쓰지 않았습니다.')
+      const local = readStore().records
+      if (!local.length) throw new Error('이 기기에 올릴 기존 기록이 없습니다.')
+      const result = await importRecords(local)
+      setMigration(result)
+      notify(`기존 기록 ${result.added}건을 서버로 옮겼습니다. (중복 ${result.skipped}건 제외)`)
     })
   const changePin = (e) => {
     e.preventDefault()
     void run(async () => {
       if (newPin !== newPinConfirmation) throw new Error('새 PIN과 확인 값이 일치하지 않습니다.')
-      await navigator.locks.request('health-admin-auth', async () => {
-        assertActive()
-        await unlockPin(currentPin)
-        const existing = readCredential()
-        const credential = {
-          ...(await hashPin(newPin)),
-          failures: 0,
-          lockUntil: 0,
-          recoverySalt: existing?.recoverySalt,
-          recoveryHash: existing?.recoveryHash,
-        }
-        assertActive()
-        localStorage.setItem(AUTH_KEY, JSON.stringify(credential))
-      })
+      assertActive()
+      await api.changePin(currentPin, newPin)
       notify('PIN을 변경했습니다. 복구 코드는 그대로 유지됩니다. 새 PIN으로 다시 해제해 주세요.')
       onLock()
     })
@@ -109,9 +109,7 @@ export default function SettingsPanel({ onClose, onLock, mutate, notify, disable
   const reissueRecovery = (e) => {
     e.preventDefault()
     void run(async () => {
-      const { recoveryCode } = await navigator.locks.request('health-admin-auth', () =>
-        regenerateRecoveryCode(recoveryPin),
-      )
+      const { recoveryCode } = await api.reissueRecoveryCode(recoveryPin)
       assertActive()
       setRecoveryPin('')
       setNewRecovery(recoveryCode)
@@ -121,8 +119,9 @@ export default function SettingsPanel({ onClose, onLock, mutate, notify, disable
   const saveHours = (e) => {
     e.preventDefault()
     void run(async () => {
-      writeHours(hours)
-      notify(`운영 시간을 저장했습니다. (${hoursSummary(readHours())})`)
+      await api.saveHours(serializeHours(hours))
+      await sync()
+      notify(`운영 시간을 저장했습니다. (${hoursSummary(hours)})`)
     })
   }
   const toggleDay = (day) =>
@@ -133,16 +132,31 @@ export default function SettingsPanel({ onClose, onLock, mutate, notify, disable
         : [...prev.days, day].sort((a, b) => a - b),
     }))
   return (
-    <Dialog title="기기 설정 및 백업" onClose={onClose} busy={busy} wide>
+    <Dialog title="설정 및 백업" onClose={onClose} busy={busy} wide>
       <div className="stack">
         <div className="warning-note">
-          <strong>이 기기에서만 저장됩니다</strong>
+          <strong>기록은 보건실 서버 PC에 저장됩니다</strong>
           <p>
-            다른 PC·태블릿과 동기화되지 않습니다. 브라우저 데이터 삭제·기기 고장 시 기록을 잃을 수
-            있습니다. 로컬 기록 자체는 암호화되지 않습니다. 학교가 승인한 전용 기기에서만
-            운영하세요.
+            세 기기가 같은 기록을 봅니다. 서버 PC가 꺼져 있으면 접수도 멈춥니다. 기록 파일 자체는
+            암호화되지 않으므로 서버 PC는 학교가 승인한 기기여야 하고, 잠금 화면을 걸어 두세요.
           </p>
         </div>
+        <section className="settings-section">
+          <h3>이 기기의 기존 기록 서버로 옮기기</h3>
+          <p className="muted">
+            서버를 쓰기 전에 이 브라우저에만 쌓여 있던 접수 기록을 서버로 한 번 올립니다. 이미
+            서버에 있는 기록은 건너뛰고, 접수번호가 겹치면 새 번호를 줍니다. 기기마다 한 번씩
+            실행하면 됩니다.
+          </p>
+          <button className="button secondary" onClick={migrate} disabled={busy || disabled}>
+            이 기기의 기존 기록 올리기
+          </button>
+          {migration && (
+            <p className="muted">
+              옮긴 기록 {migration.added}건 · 이미 있어 건너뛴 기록 {migration.skipped}건
+            </p>
+          )}
+        </section>
         <section>
           <h3>암호화 백업 · 복원</h3>
           <p className="muted">
@@ -188,7 +202,7 @@ export default function SettingsPanel({ onClose, onLock, mutate, notify, disable
             복원합니다. 백업에 있는 기록 중 <strong>현재 없는 것만 추가</strong>하며 기존 기록은
             덮어쓰지 않습니다.
           </p>
-          <form onSubmit={inspect} className="stack restore-form">
+          <form onSubmit={restore} className="stack restore-form">
             <label>
               복원할 백업 파일 (이 앱에서 내려받은 .health-backup.json)
               <input
@@ -216,27 +230,18 @@ export default function SettingsPanel({ onClose, onLock, mutate, notify, disable
                 required
               />
             </label>
+            <p className="muted">
+              새 기록만 추가합니다. 동일 ID의 내용이 다르면 복원을 중단하고, 접수번호 충돌은 새
+              번호로 조정합니다.
+            </p>
             <button
               className="button secondary"
               disabled={busy || disabled || !file || !restorePassword}
             >
-              파일 확인
+              백업에서 복원
             </button>
           </form>
-          {preview && (
-            <div className="backup-preview">
-              <p>
-                복원 가능한 기록 {preview.records.length}건 · 보관 기한 밖 {preview.expired}건 제외
-              </p>
-              <p className="muted">
-                새 기록만 추가합니다. 동일 ID의 내용이 다르면 복원을 중단하고, 접수번호 충돌은 새
-                번호로 조정합니다.
-              </p>
-              <button className="button primary" onClick={restore} disabled={busy || disabled}>
-                확인하고 새 기록 복원
-              </button>
-            </div>
-          )}
+          {preview && <p className="backup-preview">복원한 기록 {preview.restored}건</p>}
         </section>
         <section className="settings-section">
           <h3>관리자 PIN 변경</h3>
@@ -333,7 +338,7 @@ export default function SettingsPanel({ onClose, onLock, mutate, notify, disable
           <h3>운영 시간</h3>
           <p className="muted">
             운영 시간 밖에는 방문자 화면에 안내 문구가 표시되고 접수가 막힙니다. 담당자 화면은
-            영향을 받지 않습니다. 현재: {hoursSummary(readHours())}
+            영향을 받지 않습니다. 현재: {hoursSummary(savedHours ?? DEFAULT_HOURS)}
           </p>
           <form onSubmit={saveHours} className="stack">
             <div className="form-row">

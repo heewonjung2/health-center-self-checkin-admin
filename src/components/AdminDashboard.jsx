@@ -1,7 +1,6 @@
 import { useMemo, useState } from 'react'
 import {
   STATUS,
-  changeRegistration,
   dateKey,
   daySummary,
   ordered,
@@ -12,7 +11,7 @@ import {
 import { buildCSV, copyText, downloadFile } from '../lib/export'
 import Dialog from './Dialog'
 import RecordEditor from './RecordEditor'
-export default function AdminDashboard({ records, mutate, notify, disabled, onSettings }) {
+export default function AdminDashboard({ records, act, notify, disabled, onSettings }) {
   const [date, setDate] = useState(dateKey())
   const [status, setStatus] = useState('all')
   const [query, setQuery] = useState('')
@@ -34,8 +33,8 @@ export default function AdminDashboard({ records, mutate, notify, disabled, onSe
     setReason('')
     setDialog(value)
   }
-  const change = (record, action, fields) =>
-    mutate((current) => changeRegistration(current, record.id, record.version, action, fields))
+  // 상태 전환과 버전 충돌 검사는 서버가 한다. 화면은 결과만 받는다.
+  const change = (record, action, fields) => act(record, action, fields)
   const copy = async (value) => {
     try {
       await copyText(value)

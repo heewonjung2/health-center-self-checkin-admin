@@ -4,19 +4,10 @@ import {
   DEFAULT_HOURS,
   hoursSummary,
   isOpen,
-  readHours,
+  parseHours,
+  serializeHours,
   validHours,
-  writeHours,
 } from '../src/lib/schedule'
-import {
-  generateRecoveryCode,
-  normalizeRecoveryCode,
-  readCredential,
-  regenerateRecoveryCode,
-  resetPinWithRecovery,
-  setupPin,
-  unlockPin,
-} from '../src/lib/auth'
 const now = new Date('2026-08-28T01:00:00Z')
 const base = { name: '학생', studentId: 'c1', temperature: '36.5', symptom: '감기 - 목감기' }
 const rec = (over = {}) =>
@@ -59,51 +50,17 @@ describe('operating hours', () => {
     // 08:30Z Fri = 17:30 KST -> closed at end boundary (exclusive).
     expect(isOpen(hours, new Date('2026-08-28T08:30:00Z'))).toBe(false)
   })
-  it('reads defaults, persists and reloads custom hours', () => {
-    expect(readHours()).toEqual(DEFAULT_HOURS)
-    writeHours({ start: '10:00', end: '16:00', days: [3, 1] })
-    expect(readHours()).toEqual({ start: '10:00', end: '16:00', days: [1, 3] })
-    expect(() => writeHours({ start: 'x', end: 'y', days: [1] })).toThrow()
-    localStorage.setItem('hongik-health-hours-v1', '{bad')
-    expect(readHours()).toEqual(DEFAULT_HOURS)
+  it('서버가 준 운영 시간을 읽고, 값이 없거나 깨졌으면 기본값을 쓴다', () => {
+    const stored = serializeHours({ start: '10:00', end: '16:00', days: [3, 1] })
+    expect(parseHours(stored)).toEqual({ start: '10:00', end: '16:00', days: [1, 3] })
+    expect(() => serializeHours({ start: 'x', end: 'y', days: [1] })).toThrow()
+    expect(parseHours(null)).toEqual(DEFAULT_HOURS)
+    expect(parseHours('{bad')).toEqual(DEFAULT_HOURS)
+    expect(parseHours('{"start":"25:00","end":"16:00","days":[1]}')).toEqual(DEFAULT_HOURS)
   })
   it('formats a human summary', () => {
     expect(hoursSummary({ start: '09:00', end: '17:30', days: [1, 2, 3, 4, 5] })).toBe(
       '월·화·수·목·금 09:00–17:30',
     )
-  })
-})
-describe('admin recovery code', () => {
-  it('generates a 20-char grouped code and normalizes input', () => {
-    const code = generateRecoveryCode()
-    expect(code).toMatch(/^[0-9A-Z]{5}-[0-9A-Z]{5}-[0-9A-Z]{5}-[0-9A-Z]{5}$/)
-    expect(normalizeRecoveryCode(code.toLowerCase().replace(/-/g, ' '))).toBe(
-      code.replace(/-/g, ''),
-    )
-  })
-  it('issues a recovery code on setup and stores only its hash', async () => {
-    const { recoveryCode } = await setupPin('123456')
-    expect(recoveryCode).toMatch(/-/)
-    const stored = JSON.stringify(readCredential())
-    expect(stored).not.toContain(normalizeRecoveryCode(recoveryCode))
-    expect(readCredential().recoveryHash).toBeTruthy()
-  })
-  it('resets the PIN with a valid recovery code and rotates the code', async () => {
-    const { recoveryCode } = await setupPin('123456')
-    await expect(resetPinWithRecovery('WRONG-CODE-HERE-XXXX0', '654321')).rejects.toThrow()
-    const { recoveryCode: next } = await resetPinWithRecovery(recoveryCode, '654321')
-    expect(next).not.toBe(recoveryCode)
-    expect(await unlockPin('654321')).toBe(true)
-    // The old code no longer works.
-    await expect(resetPinWithRecovery(recoveryCode, '111111')).rejects.toThrow()
-  })
-  it('reissues a recovery code only with the current PIN', async () => {
-    const { recoveryCode } = await setupPin('123456')
-    await expect(regenerateRecoveryCode('000000')).rejects.toThrow('현재 PIN')
-    const { recoveryCode: next } = await regenerateRecoveryCode('123456')
-    expect(next).not.toBe(recoveryCode)
-    await expect(resetPinWithRecovery(recoveryCode, '222222')).rejects.toThrow()
-    await resetPinWithRecovery(next, '222222')
-    expect(await unlockPin('222222')).toBe(true)
   })
 })
