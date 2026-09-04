@@ -47,7 +47,7 @@ export default function RecordEditor({ record, onClose, onSave }) {
             </label>
           </div>
           <label>
-            체온 (°C)
+            체온 (°C) <span className="optional">선택</span>
             <input
               type="number"
               step="0.1"
@@ -55,8 +55,7 @@ export default function RecordEditor({ record, onClose, onSave }) {
               max="42"
               value={form.temperature}
               onChange={(e) => set('temperature', e.target.value)}
-              required={record.temperature !== null}
-              placeholder="기존 기록에 체온이 없으면 비워 둘 수 있습니다"
+              placeholder="선택 · 비워 두면 미기록으로 저장됩니다"
             />
           </label>
           <label>
