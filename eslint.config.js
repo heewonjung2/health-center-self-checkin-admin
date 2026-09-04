@@ -26,4 +26,9 @@ export default defineConfig([
       'no-unused-vars': ['error', { varsIgnorePattern: '^[A-Z_]' }],
     },
   },
+  {
+    // 보건실 PC에서 도는 서버. 브라우저가 아니라 Node에서 실행된다.
+    files: ['server/**/*.js', 'tests/server.test.js'],
+    languageOptions: { globals: { ...globals.node, fetch: 'readonly' } },
+  },
 ])
