@@ -24,7 +24,7 @@ describe('validation and dates', () => {
   it('normalizes IDs and numeric temperature', () => {
     expect(validateFields(fields)).toMatchObject({ studentId: 'C000001', temperature: 36.5 })
   })
-  it.each(['', ' ', 'invalid', '33.9', '42.1', '36.55', Infinity, null, undefined])(
+  it.each(['invalid', '33.9', '42.1', '36.55', Infinity])(
     'rejects invalid temperature %s',
     (temperature) => {
       expect(() => create('one', { ...fields, temperature })).toThrow()
@@ -32,6 +32,9 @@ describe('validation and dates', () => {
   )
   it.each(['34.0', '42.0'])('accepts boundary %s', (temperature) => {
     expect(create('one', { ...fields, temperature }).temperature).toBe(Number(temperature))
+  })
+  it.each(['', ' ', null, undefined])('treats empty temperature %s as 미기록', (temperature) => {
+    expect(create('one', { ...fields, temperature }).temperature).toBe(null)
   })
   it('requires name, ID and purpose', () => {
     for (const key of ['name', 'studentId', 'symptom'])

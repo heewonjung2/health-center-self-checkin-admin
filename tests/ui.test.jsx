@@ -15,9 +15,9 @@ const fields = {
 async function fillVisitor(user) {
   await user.type(screen.getByLabelText('학번 / 직원 번호'), 'C000001')
   await user.type(screen.getByLabelText('이름'), '테스트학생')
-  await user.type(screen.getByRole('spinbutton'), '36.5')
   await user.click(screen.getByRole('button', { name: '감기', exact: true }))
   await user.click(screen.getByRole('button', { name: '목감기', exact: true }))
+  await user.type(screen.getByRole('spinbutton'), '36.5')
 }
 it('shows queue numbers but no names or student IDs in visitor waiting list', () => {
   render(
@@ -41,6 +41,22 @@ it('shows success only after persistence, resets personal input', async () => {
   expect(mutate).toHaveBeenCalledTimes(1)
   await user.click(screen.getByRole('button', { name: '다음 방문자 접수' }))
   expect(screen.getByLabelText('이름')).toHaveValue('')
+})
+it('asks for temperature only on 두통/감기 and keeps it optional', async () => {
+  const user = userEvent.setup()
+  const mutate = vi.fn(async (change) => change([]))
+  render(<VisitorCheckIn records={[]} mutate={mutate} onAdmin={vi.fn()} />)
+  await user.type(screen.getByLabelText('학번 / 직원 번호'), 'C000001')
+  await user.type(screen.getByLabelText('이름'), '테스트학생')
+  await user.click(screen.getByRole('button', { name: '소화불량', exact: true }))
+  await user.click(screen.getByRole('button', { name: '체함', exact: true }))
+  expect(screen.queryByRole('spinbutton')).not.toBeInTheDocument()
+  await user.click(screen.getByRole('button', { name: '감기', exact: true }))
+  expect(screen.getByRole('spinbutton')).toBeInTheDocument()
+  await user.click(screen.getByRole('button', { name: '목감기', exact: true }))
+  await user.click(screen.getByRole('button', { name: '접수하기 →' }))
+  expect(await screen.findByText('접수가 완료되었습니다')).toBeInTheDocument()
+  expect(mutate.mock.results).toHaveLength(1)
 })
 it('preserves form input and shows error on storage failure', async () => {
   const user = userEvent.setup()

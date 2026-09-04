@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from 'react'
 import {
   ACTIVE,
   SYMPTOMS,
+  TEMPERATURE_PURPOSES,
   composeSymptom,
   createRegistration,
   dateKey,
@@ -83,7 +84,7 @@ export default function VisitorCheckIn({
     <main id="main" className="visitor-layout">
       <section className="checkin-card">
         <h1>건강진료센터 셀프 접수 시스템</h1>
-        <p className="lead">학번·이름·체온·방문 목적을 입력하면 순서대로 안내해 드립니다.</p>
+        <p className="lead">학번·이름·방문 목적을 입력하면 순서대로 안내해 드립니다.</p>
         {closed ? (
           <div className="receipt closed-notice" role="status">
             <span className="success-icon" aria-hidden="true">
@@ -142,25 +143,6 @@ export default function VisitorCheckIn({
                   />
                 </label>
               </div>
-              <label className="temperature-field">
-                체온 <span className="optional">측정한 값을 입력해 주세요</span>
-                <div className="input-unit">
-                  <input
-                    type="number"
-                    name="temperature"
-                    inputMode="decimal"
-                    step="0.1"
-                    min="34"
-                    max="42"
-                    value={form.temperature}
-                    onChange={(e) => set('temperature', e.target.value)}
-                    autoComplete="off"
-                    placeholder="36.5"
-                    required
-                  />
-                  <span>°C</span>
-                </div>
-              </label>
               <fieldset className="plain-fieldset">
                 <legend>방문 목적</legend>
                 <div className="symptom-grid">
@@ -171,7 +153,13 @@ export default function VisitorCheckIn({
                       className={`choice ${form.main === item ? 'selected' : ''}`}
                       aria-pressed={form.main === item}
                       onClick={() => {
-                        setForm((prev) => ({ ...prev, main: item, subs: [], detail: '' }))
+                        setForm((prev) => ({
+                          ...prev,
+                          main: item,
+                          subs: [],
+                          detail: '',
+                          temperature: TEMPERATURE_PURPOSES.includes(item) ? prev.temperature : '',
+                        }))
                         setError('')
                       }}
                     >
@@ -212,6 +200,26 @@ export default function VisitorCheckIn({
                     autoComplete="off"
                     placeholder="불편한 증상을 간단히 알려 주세요"
                   />
+                </label>
+              )}
+              {TEMPERATURE_PURPOSES.includes(form.main) && (
+                <label className="temperature-field">
+                  체온 <span className="optional">선택 · 측정한 값이 있으면 입력해 주세요</span>
+                  <div className="input-unit">
+                    <input
+                      type="number"
+                      name="temperature"
+                      inputMode="decimal"
+                      step="0.1"
+                      min="34"
+                      max="42"
+                      value={form.temperature}
+                      onChange={(e) => set('temperature', e.target.value)}
+                      autoComplete="off"
+                      placeholder="36.5"
+                    />
+                    <span>°C</span>
+                  </div>
                 </label>
               )}
               <p className="privacy-note">

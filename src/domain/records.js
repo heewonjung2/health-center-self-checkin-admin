@@ -8,6 +8,8 @@ export const SYMPTOMS = {
   생리통: ['복통', '요통', '직접입력'],
   기타: ['직접입력'],
 }
+// 체온을 물어보는 방문 목적. 나머지 목적은 체온 입력란을 아예 보여주지 않는다.
+export const TEMPERATURE_PURPOSES = ['두통', '감기']
 export const STATUS = {
   waiting: '대기 중',
   in_progress: '진료 중',
@@ -94,16 +96,14 @@ function text(value, label, max, required = false) {
     throw new Error(`${label}: ${required ? '1' : '0'}~${max}자로 입력해 주세요.`)
   return result
 }
-export function validateFields(input, { legacy = false } = {}) {
+export function validateFields(input) {
   const studentId = text(input.studentId, '학번/직원번호', 30, true).toUpperCase()
   const name = text(input.name, '이름', 50, true)
   const symptom = text(input.symptom, '방문 목적', 300, true)
   let temperature = input.temperature
-  if (legacy && (temperature === undefined || temperature === '' || temperature === null))
-    temperature = null
+  if (typeof temperature === 'string') temperature = temperature.trim()
+  if (temperature === '' || temperature === null || temperature === undefined) temperature = null
   else {
-    if (temperature === '' || temperature === null || temperature === undefined)
-      throw new Error('체온을 입력해 주세요.')
     temperature = Number(temperature)
     if (
       !Number.isFinite(temperature) ||
@@ -188,7 +188,7 @@ export function changeRegistration(
   let note = ''
   if (action === 'edit') {
     if (record.status === 'cancelled') throw new Error('취소 기록은 복구 후 수정할 수 있습니다.')
-    Object.assign(next, validateFields(fields, { legacy: record.temperature === null }))
+    Object.assign(next, validateFields(fields))
     if (ACTIVE.includes(record.status)) assertNoDuplicate(records, next, id, record.date)
     label = '수정'
   } else if (action === 'start' && record.status === 'waiting') {
@@ -248,7 +248,7 @@ export function validateRecord(r) {
     status: r.status,
     createdAt: new Date(r.createdAt).toISOString(),
     updatedAt: new Date(r.updatedAt).toISOString(),
-    ...validateFields(r, { legacy: true }),
+    ...validateFields(r),
     history: r.history.map((h) => ({
       at: h.at,
       action: h.action,
