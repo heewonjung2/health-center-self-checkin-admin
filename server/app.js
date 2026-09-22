@@ -88,7 +88,7 @@ export function createApp({ store, auth, config, now = () => new Date() }) {
     res.end(JSON.stringify(payload))
   }
   const cookieHeader = (token, maxAge) =>
-    `${COOKIE}=${token}; HttpOnly; Path=/; SameSite=Strict; Max-Age=${maxAge}`
+    `${COOKIE}=${token}; HttpOnly; Path=/; SameSite=Strict; Max-Age=${maxAge}${config.secure ? '; Secure' : ''}`
 
   function requireSession(req) {
     const token = readCookie(req.headers.cookie, COOKIE)
@@ -271,8 +271,8 @@ export function createApp({ store, auth, config, now = () => new Date() }) {
       )
       return send(res, 200, { added, skipped, revision: result.revision })
     }
-    // 백업 암·복호화는 서버에서 한다. 태블릿·근로학생 PC는 http로 붙어 있어
-    // 브라우저 암호화 기능(crypto.subtle)을 쓸 수 없기 때문이다.
+    // 백업 암·복호화는 서버에서 일관되게 처리한다. 브라우저 저장소와 분리해
+    // 기기 교체·주소 변경 시에도 같은 형식으로 복원할 수 있게 한다.
     if (path === '/backup' && method === 'POST') {
       const { password } = await readBody(req)
       const payload = JSON.stringify({
@@ -341,7 +341,8 @@ export function createApp({ store, auth, config, now = () => new Date() }) {
   }
 
   return async function handle(req, res) {
-    const url = new URL(req.url, `http://${req.headers.host ?? 'localhost'}`)
+    const scheme = config.secure ? 'https' : 'http'
+    const url = new URL(req.url, `${scheme}://${req.headers.host ?? 'localhost'}`)
     try {
       if (url.pathname.startsWith('/api/')) return await api(req, res, url)
       if (req.method !== 'GET' && req.method !== 'HEAD')
