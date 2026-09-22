@@ -2,6 +2,7 @@ import { createServer } from 'node:http'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import { createApp } from '../server/app.js'
 import { createAuth } from '../server/auth.js'
+import { loadConfig } from '../server/config.js'
 import { createStore, openDatabase } from '../server/db.js'
 import { createRegistration, dateKey } from '../src/domain/records.js'
 
@@ -224,5 +225,36 @@ describe('보관 기간', () => {
     expect(store.all()).toHaveLength(1)
     expect(store.purge(new Date('2026-09-04T02:00:00Z'))).toBe(1)
     expect(store.all()).toHaveLength(0)
+  })
+})
+
+describe('서버 네트워크 보안 설정', () => {
+  it('기본 실행은 127.0.0.1 로컬 전용 HTTP다', () => {
+    const config = loadConfig({})
+    expect(config.host).toBe('127.0.0.1')
+    expect(config.secure).toBe(false)
+    expect(config.tlsCert).toBe(null)
+    expect(config.tlsKey).toBe(null)
+  })
+
+  it('TLS 없이 LAN 전체 바인딩을 거부한다', () => {
+    expect(() => loadConfig({ HC_HOST: '0.0.0.0' })).toThrow(/TLS/)
+  })
+
+  it('인증서와 키는 반드시 함께 지정해야 한다', () => {
+    expect(() => loadConfig({ HC_TLS_CERT: './server.crt' })).toThrow(/함께/)
+    expect(() => loadConfig({ HC_TLS_KEY: './server.key' })).toThrow(/함께/)
+  })
+
+  it('TLS 인증서와 키가 있으면 LAN HTTPS 설정을 허용한다', () => {
+    const config = loadConfig({
+      HC_HOST: '0.0.0.0',
+      HC_TLS_CERT: './server.crt',
+      HC_TLS_KEY: './server.key',
+    })
+    expect(config.host).toBe('0.0.0.0')
+    expect(config.secure).toBe(true)
+    expect(config.tlsCert).toMatch(/server\.crt$/)
+    expect(config.tlsKey).toMatch(/server\.key$/)
   })
 })
