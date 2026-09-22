@@ -37,6 +37,10 @@ async function call(path, { method = 'GET', body, session = false } = {}) {
 beforeEach(async () => {
   cookie = null
   store = createStore(openDatabase(':memory:'))
+  store.saveSetting(
+    'hours',
+    JSON.stringify({ start: '00:00', end: '23:59', days: [0, 1, 2, 3, 4, 5, 6] }),
+  )
   auth = createAuth(store, { idleMs: 60000 })
   server = createServer(createApp({ store, auth, config: { staticDir: '/nonexistent' } }))
   await new Promise((resolve) => server.listen(0, '127.0.0.1', resolve))
@@ -256,5 +260,98 @@ describe('서버 네트워크 보안 설정', () => {
     expect(config.secure).toBe(true)
     expect(config.tlsCert).toMatch(/server\.crt$/)
     expect(config.tlsKey).toMatch(/server\.key$/)
+  })
+})
+
+describe('서버 운영 규칙', () => {
+  it('운영시간 밖의 API 직접 접수를 거부한다', async () => {
+    const weekday = new Intl.DateTimeFormat('en-US', {
+      timeZone: 'Asia/Seoul',
+      weekday: 'short',
+    }).format(new Date())
+    const today = { Sun: 0, Mon: 1, Tue: 2, Wed: 3, Thu: 4, Fri: 5, Sat: 6 }[weekday]
+    store.saveSetting(
+      'hours',
+      JSON.stringify({ start: '00:00', end: '23:59', days: [(today + 1) % 7] }),
+    )
+    const result = await call('/registrations', { method: 'POST', body: visitor })
+    expect(result.status).toBe(403)
+    expect(store.all()).toHaveLength(0)
+  })
+
+  it('잘못된 운영시간을 저장하지 않는다', async () => {
+    await unlock()
+    const previous = store.setting('hours')
+    const result = await call('/hours', { method: 'PUT', body: { hours: '{}' }, session: true })
+    expect(result.status).toBe(400)
+    expect(store.setting('hours')).toBe(previous)
+  })
+
+  it('다른 사이트가 보내는 접수를 차단한다', async () => {
+    const response = await fetch(base + '/registrations', {
+      method: 'POST',
+      headers: { Origin: 'https://untrusted.example', 'Content-Type': 'application/json' },
+      body: JSON.stringify(visitor),
+    })
+    expect(response.status).toBe(403)
+    expect(store.all()).toHaveLength(0)
+  })
+
+  it('null 요청을 내부 오류 대신 입력 오류로 처리한다', async () => {
+    const response = await fetch(base + '/registrations', { method: 'POST', body: 'null' })
+    expect(response.status).toBe(400)
+  })
+
+  it('동일 ID의 다른 내용은 이관 전체를 취소한다', async () => {
+    await unlock()
+    const original = createRegistration([], visitor, new Date(), 'existing')
+    store.apply(() => [original])
+    const other = createRegistration([], { ...visitor, studentId: 'c99' }, new Date(), 'new')
+    const result = await call('/import', {
+      method: 'POST',
+      session: true,
+      body: { records: [other, { ...original, name: '다른 이름' }] },
+    })
+    expect(result.status).toBe(400)
+    expect(store.all()).toEqual([original])
+  })
+
+  it('동일 학생의 진행 중 기록을 다른 ID로 이관하지 않는다', async () => {
+    await unlock()
+    await call('/registrations', { method: 'POST', body: visitor })
+    const duplicate = createRegistration([], visitor, new Date(), 'another-id')
+    const result = await call('/import', {
+      method: 'POST',
+      session: true,
+      body: { records: [duplicate] },
+    })
+    expect(result.status).toBe(400)
+    expect(store.all()).toHaveLength(1)
+  })
+
+  it('암호화 백업을 다시 복원하면 추가 건수는 0이다', async () => {
+    await unlock()
+    await call('/registrations', { method: 'POST', body: visitor })
+    const password = 'test-backup-password'
+    const backup = await call('/backup', { method: 'POST', session: true, body: { password } })
+    const result = await call('/restore', {
+      method: 'POST',
+      session: true,
+      body: { password, payload: backup.body.file },
+    })
+    expect(result.status).toBe(200)
+    expect(result.body.restored).toBe(0)
+    expect(store.all()).toHaveLength(1)
+  })
+
+  it('PIN 변경은 이전 세션을 종료한다', async () => {
+    await unlock()
+    const result = await call('/pin/change', {
+      method: 'POST',
+      session: true,
+      body: { currentPin: '123456', pin: '654321' },
+    })
+    expect(result.status).toBe(200)
+    expect((await call('/records', { session: true })).status).toBe(401)
   })
 })

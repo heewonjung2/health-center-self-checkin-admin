@@ -18,6 +18,10 @@ const realFetch = globalThis.fetch
 beforeEach(async () => {
   cookie = ''
   store = createStore(openDatabase(':memory:'))
+  store.saveSetting(
+    'hours',
+    JSON.stringify({ start: '00:00', end: '23:59', days: [0, 1, 2, 3, 4, 5, 6] }),
+  )
   const auth = createAuth(store, { idleMs: 60000 })
   server = createServer(createApp({ store, auth, config: { staticDir: '/nonexistent' } }))
   await new Promise((resolve) => server.listen(0, '127.0.0.1', resolve))

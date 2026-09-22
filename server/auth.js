@@ -82,6 +82,7 @@ export function createAuth(store, { idleMs = 5 * 60 * 1000, now = () => Date.now
         throw fail('현재 PIN이 일치하지 않습니다.', 401)
       assertPinFormat(newPin)
       save({ ...current, pin: hash(newPin), failures: 0, lockUntil: 0 })
+      sessions.clear()
     },
     resetWithRecovery(code, newPin) {
       const current = state()

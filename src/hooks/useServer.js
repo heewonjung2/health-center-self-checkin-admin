@@ -44,7 +44,8 @@ export function useServer() {
         online: !error.offline,
         error: error.message,
         // 서버와 끊긴 동안 이전 기록을 계속 띄우지 않는다.
-        records: error.offline ? [] : prev.records,
+        authenticated: error.status === 401 || error.offline ? false : prev.authenticated,
+        records: error.status === 401 || error.offline ? [] : prev.records,
         entries: error.offline ? [] : prev.entries,
       }))
     } finally {

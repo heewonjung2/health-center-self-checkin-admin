@@ -9,7 +9,9 @@ import {
   ordered,
   validDate,
   validateRecord,
+  withinRetention,
 } from '../src/domain/records.js'
+import { isOpen, parseHours, serializeHours } from '../src/lib/schedule.js'
 import { inspectBackup, mergeBackup } from '../src/domain/backup.js'
 import { decryptBackup, encryptBackup } from '../src/lib/crypto.js'
 
@@ -24,7 +26,7 @@ const TYPES = {
   '.webmanifest': 'application/manifest+json',
 }
 const COOKIE = 'hc_session'
-const MAX_BODY = 512 * 1024
+const MAX_BODY = 11 * 1024 * 1024
 const SESSION_COOKIE_MAX_AGE = 43200
 const ACTIONS = new Set(['edit', 'start', 'complete', 'cancel', 'restore'])
 const fail = (message, status = 400) => Object.assign(new Error(message), { status })
@@ -55,7 +57,10 @@ async function readBody(req) {
   }
   if (!chunks.length) return {}
   try {
-    return JSON.parse(Buffer.concat(chunks).toString('utf8'))
+    const value = JSON.parse(Buffer.concat(chunks).toString('utf8'))
+    if (!value || typeof value !== 'object' || Array.isArray(value))
+      throw new Error('Invalid object')
+    return value
   } catch {
     throw fail('요청 형식이 올바르지 않습니다.')
   }
@@ -128,6 +133,8 @@ export function createApp({ store, auth, config, now = () => new Date() }) {
       return send(res, 200, { date, revision: store.revision(), entries })
     }
     if (path === '/registrations' && method === 'POST') {
+      if (!isOpen(parseHours(store.setting('hours')), now()))
+        throw fail('지금은 운영 시간이 아닙니다.', 403)
       const input = await readBody(req)
       let created
       const result = mutate(
@@ -238,28 +245,12 @@ export function createApp({ store, auth, config, now = () => new Date() }) {
       let skipped = 0
       const result = mutate(
         (records) => {
-          const next = [...records]
-          for (const raw of incoming) {
-            const record = validateRecord(raw)
-            const duplicate = next.some(
-              (r) =>
-                r.id === record.id ||
-                (r.date === record.date &&
-                  r.studentId === record.studentId &&
-                  r.createdAt === record.createdAt),
-            )
-            if (duplicate) {
-              skipped += 1
-              continue
-            }
-            const taken = new Set(
-              next.filter((r) => r.date === record.date).map((r) => r.queueNumber),
-            )
-            let queueNumber = record.queueNumber
-            while (taken.has(queueNumber)) queueNumber += 1
-            next.push({ ...record, queueNumber })
-            added += 1
-          }
+          const validated = incoming.map(validateRecord)
+          if (validated.some((record) => !withinRetention(record, now())))
+            throw fail('보관 기간 밖의 기록은 이관할 수 없습니다.')
+          const next = mergeBackup(records, validated)
+          added = next.length - records.length
+          skipped = incoming.length - added
           return next
         },
         {
@@ -293,23 +284,41 @@ export function createApp({ store, auth, config, now = () => new Date() }) {
       const { password, payload } = await readBody(req)
       let imported
       try {
-        imported = inspectBackup(await decryptBackup(String(payload ?? ''), String(password ?? '')))
+        imported = inspectBackup(
+          await decryptBackup(String(payload ?? ''), String(password ?? '')),
+          now(),
+        )
       } catch (error) {
         throw fail(error.message)
       }
-      const result = mutate((records) => mergeBackup(records, imported.records), {
-        actor: 'admin',
-        action: '백업 복원',
-        detail: `${imported.records.length}건`,
-        now: now(),
-      })
-      return send(res, 200, { restored: imported.records.length, revision: result.revision })
+      let restored = 0
+      const result = mutate(
+        (records) => {
+          const next = mergeBackup(records, imported.records)
+          restored = next.length - records.length
+          return next
+        },
+        {
+          actor: 'admin',
+          action: '백업 복원',
+          detail: `${imported.records.length}건`,
+          now: now(),
+        },
+      )
+      return send(res, 200, { restored, revision: result.revision })
     }
     if (path === '/hours' && method === 'PUT') {
       const { hours } = await readBody(req)
       if (typeof hours !== 'string' || hours.length > 2000)
         throw fail('운영 시간 형식이 올바르지 않습니다.')
-      store.saveSetting('hours', hours)
+      let normalized
+      try {
+        normalized = serializeHours(JSON.parse(hours))
+      } catch {
+        throw fail('운영 시간 형식이 올바르지 않습니다.')
+      }
+      store.saveSetting('hours', normalized)
+      broadcast(store.revision())
       store.log('admin', '운영 시간 변경', hours, now())
       return send(res, 200, { hours })
     }
@@ -341,9 +350,17 @@ export function createApp({ store, auth, config, now = () => new Date() }) {
   }
 
   return async function handle(req, res) {
-    const scheme = config.secure ? 'https' : 'http'
-    const url = new URL(req.url, `${scheme}://${req.headers.host ?? 'localhost'}`)
     try {
+      const url = new URL(
+        req.url,
+        `${config.secure ? 'https' : 'http'}://${req.headers.host ?? 'localhost'}`,
+      )
+      if (!['GET', 'HEAD', 'OPTIONS'].includes(req.method)) {
+        if (req.headers.origin && req.headers.origin !== url.origin)
+          throw fail('다른 사이트의 요청은 허용하지 않습니다.', 403)
+        if (req.headers['sec-fetch-site'] === 'cross-site')
+          throw fail('다른 사이트의 요청은 허용하지 않습니다.', 403)
+      }
       if (url.pathname.startsWith('/api/')) return await api(req, res, url)
       if (req.method !== 'GET' && req.method !== 'HEAD')
         throw fail('허용되지 않은 요청입니다.', 405)
