@@ -1,7 +1,6 @@
 import { it, expect } from 'vitest'
 import { csvCell, buildCSV } from '../src/lib/export'
-import { hashPin, encryptBackup, decryptBackup } from '../src/lib/crypto'
-import { AUTH_KEY, readCredential, setupPin, unlockPin } from '../src/lib/auth'
+import { encryptBackup, decryptBackup } from '../src/lib/crypto'
 import { createRegistration } from '../src/domain/records'
 it.each([
   '=1+1',
@@ -30,26 +29,6 @@ it('exports BOM, full local date, status and correct temperature', () => {
   expect(csv).toContain('"2026-08-28"')
   expect(csv).toContain('"00:30"')
   expect(csv).toContain('"대기 중"')
-})
-it('uses unique salted PIN verifiers without persisting plaintext', async () => {
-  const a = await hashPin('123456')
-  const b = await hashPin('123456')
-  expect(a.hash).not.toBe(b.hash)
-  expect(JSON.stringify(a)).not.toContain('123456')
-})
-it('sets, checks and rate-limits the screen PIN', async () => {
-  await setupPin('123456')
-  expect(readCredential()).not.toBeNull()
-  await expect(setupPin('654321')).rejects.toThrow('이미')
-  for (let i = 0; i < 5; i++)
-    await expect(unlockPin('000000', localStorage, 1000)).rejects.toThrow()
-  await expect(unlockPin('123456', localStorage, 2000)).rejects.toThrow('초 후')
-  expect(await unlockPin('123456', localStorage, 62000)).toBe(true)
-})
-it('fails closed on corrupted PIN settings', () => {
-  localStorage.setItem(AUTH_KEY, '{broken')
-  expect(() => readCredential()).toThrow()
-  expect(localStorage.getItem(AUTH_KEY)).toBe('{broken')
 })
 it('encrypts and restores backup, rejecting wrong passwords and tampering', async () => {
   const payload = '{"test":"민감정보 대신 테스트 값"}'

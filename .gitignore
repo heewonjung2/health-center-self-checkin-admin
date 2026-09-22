@@ -28,3 +28,12 @@ coverage
 *.njsproj
 *.sln
 *.sw?
+
+# 서버 기록 파일
+data
+
+# TLS private material
+certs/
+*.key
+*.pem
+*.pfx

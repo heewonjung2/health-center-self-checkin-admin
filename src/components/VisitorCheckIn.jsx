@@ -1,20 +1,11 @@
 import { useEffect, useRef, useState } from 'react'
-import {
-  ACTIVE,
-  SYMPTOMS,
-  TEMPERATURE_PURPOSES,
-  composeSymptom,
-  createRegistration,
-  dateKey,
-  ordered,
-  queueLabel,
-} from '../domain/records'
+import { SYMPTOMS, TEMPERATURE_PURPOSES, composeSymptom, queueLabel } from '../domain/records'
 const EMPTY = { studentId: '', name: '', temperature: '', main: '', subs: [], detail: '' }
 const isDirty = (form) =>
   Object.values(form).some((value) => (Array.isArray(value) ? value.length > 0 : Boolean(value)))
 export default function VisitorCheckIn({
-  records,
-  mutate,
+  waiting = [],
+  register,
   disabled,
   onAdmin,
   kiosk = false,
@@ -27,8 +18,6 @@ export default function VisitorCheckIn({
   const [busy, setBusy] = useState(false)
   const inFlight = useRef(false)
   const firstInput = useRef(null)
-  const today = dateKey()
-  const waiting = ordered(records.filter((r) => r.date === today && ACTIVE.includes(r.status)))
   const set = (key, value) => {
     setForm((prev) => ({ ...prev, [key]: value }))
     setError('')
@@ -66,11 +55,9 @@ export default function VisitorCheckIn({
     setError('')
     try {
       const symptom = composeSymptom(form.main, form.subs, form.detail)
-      let created
-      await mutate((current) => {
-        created = createRegistration(current, { ...form, symptom })
-        return [...current, created]
-      })
+      const { studentId, name, temperature } = form
+      // 서버가 접수번호를 매긴다 — 세 기기가 같은 번호 체계를 쓰려면 한 곳에서만 채번해야 한다.
+      const created = await register({ studentId, name, temperature, symptom })
       setForm(EMPTY)
       setReceipt({ queueNumber: created.queueNumber })
     } catch (error) {
@@ -247,7 +234,7 @@ export default function VisitorCheckIn({
         <p className="muted">개인정보 대신 접수번호로 안내합니다.</p>
         <ol className="waiting-list">
           {waiting.slice(0, 8).map((r) => (
-            <li key={r.id}>
+            <li key={r.queueNumber}>
               <span className="queue-number">{queueLabel(r)}</span>
               <span className={`status ${r.status}`}>
                 {r.status === 'in_progress' ? '진료 중' : '대기 중'}

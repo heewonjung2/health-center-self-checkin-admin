@@ -12,7 +12,9 @@
     "test:watch": "vitest",
     "format": "prettier --write .",
     "format:check": "prettier --check .",
-    "check": "npm run lint && npm test && npm run build"
+    "check": "npm run lint && npm test && npm run build",
+    "server": "node --no-warnings=ExperimentalWarning server/index.js",
+    "serve": "npm run build && npm run server"
   },
   "dependencies": {
     "react": "^19.1.0",
@@ -32,5 +34,8 @@
     "prettier": "^3.9.6",
     "vite": "^6.4.3",
     "vitest": "^3.2.7"
+  },
+  "engines": {
+    "node": ">=24.0.0"
   }
 }

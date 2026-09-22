@@ -1,4 +1,4 @@
-import { ACTIVE, decodeStore } from './records'
+import { ACTIVE, decodeStore } from './records.js'
 export function mergeBackup(current, imported) {
   const result = [...current]
   const byId = new Map(current.map((r) => [r.id, r]))

@@ -1,8 +1,9 @@
 import { useState } from 'react'
 import Dialog from './Dialog'
-import { resetPinWithRecovery, setupPin, unlockPin } from '../lib/auth'
 import { copyText } from '../lib/export'
-export default function AdminGate({ configured, onClose, onUnlock }) {
+// PIN 확인은 서버가 한다. 브라우저에서만 확인하면 같은 네트워크의 누구나
+// API를 직접 불러 개인정보를 가져갈 수 있기 때문이다.
+export default function AdminGate({ configured, onClose, onUnlock, unlock, setupPin, recoverPin }) {
   const [phase, setPhase] = useState('auth')
   const [pin, setPin] = useState('')
   const [confirmation, setConfirmation] = useState('')
@@ -26,26 +27,22 @@ export default function AdminGate({ configured, onClose, onUnlock }) {
   const submitAuth = (event) => {
     event.preventDefault()
     void guard(async () => {
-      await navigator.locks.request('health-admin-auth', async () => {
-        if (!configured) {
-          if (pin !== confirmation) throw new Error('두 PIN이 일치하지 않습니다.')
-          const { recoveryCode } = await setupPin(pin)
-          setIssuedCode(recoveryCode)
-          setPhase('show')
-        } else {
-          await unlockPin(pin)
-        }
-      })
-      if (configured) onUnlock()
+      if (!configured) {
+        if (pin !== confirmation) throw new Error('두 PIN이 일치하지 않습니다.')
+        const { recoveryCode } = await setupPin(pin)
+        setIssuedCode(recoveryCode)
+        setPhase('show')
+        return
+      }
+      await unlock(pin)
+      onUnlock()
     })
   }
   const submitRecovery = (event) => {
     event.preventDefault()
     void guard(async () => {
       if (pin !== confirmation) throw new Error('두 PIN이 일치하지 않습니다.')
-      const { recoveryCode } = await navigator.locks.request('health-admin-auth', () =>
-        resetPinWithRecovery(recoveryInput, pin),
-      )
+      const { recoveryCode } = await recoverPin(recoveryInput, pin)
       setIssuedCode(recoveryCode)
       setPhase('show')
     })
@@ -63,7 +60,7 @@ export default function AdminGate({ configured, onClose, onUnlock }) {
       {phase === 'show' ? (
         <div className="stack">
           <p className="muted">
-            아래 <strong>복구 코드</strong>는 PIN을 잊었을 때 이 기기의 잠금을 다시 설정하는 유일한
+            아래 <strong>복구 코드</strong>는 PIN을 잊었을 때 잠금을 다시 설정하는 유일한
             수단입니다. 지금 인쇄하거나 담당자 인수인계 문서에 적어{' '}
             <strong>기기와 분리된 안전한 곳</strong>에 보관하세요. 이 화면을 닫으면 다시 표시되지
             않습니다.
